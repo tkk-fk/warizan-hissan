@@ -33,6 +33,33 @@
       font-size:clamp(20px,3.8vw,28px);
     }
 
+    /* タイトル＋ステップ表示 */
+    .title-row{
+      display:flex;
+      align-items:baseline;
+      justify-content:center;
+      gap:16px;
+    }
+    #step-hint{
+      font-size:clamp(14px,3vw,18px);
+      color:#4b5563;
+      min-height:1.2em;
+    }
+    @media (max-width:600px){
+      .title-row{
+        flex-direction:column;
+        gap:4px;
+      }
+    }
+
+    /* 結果表示 */
+    #result-text{
+      margin-top:8px;
+      font-size:clamp(16px,3vw,20px);
+      color:#111827;
+      min-height:1.4em;
+    }
+
     /* ── 右側ツールバー ─────────────────────────────── */
     .toolbar{
       position:fixed;
@@ -159,12 +186,12 @@
       z-index:30;
     }
     #keypad.show{ transform:translateY(0) }
-@media (max-width: 900px){
-  #keypad{
-    left:0;
-    right:140px;          /* ツールバー（約112px）＋余白ぶん */
-  }
-}
+    @media (max-width: 900px){
+      #keypad{
+        left:0;
+        right:140px;          /* ツールバー（約112px）＋余白ぶん */
+      }
+    }
     .kp-inner{
       background:#111827;
       color:#fff;
@@ -216,7 +243,11 @@
 </head>
 
 <body>
-  <h2>わり算の筆算</h2>
+  <!-- タイトル＋現在のステップ表示 -->
+  <div class="title-row">
+    <h2>わり算の筆算</h2>
+    <div id="step-hint"></div>
+  </div>
 
   <div class="toolbar">
     <button id="stepButton">▶️ つぎへ</button>
@@ -230,6 +261,9 @@
     <div id="hissan-display"></div>
     <canvas id="drawingCanvas"></canvas>
   </div>
+
+  <!-- 結果表示 -->
+  <div id="result-text"></div>
 
   <!-- 式入力キーパッド -->
   <div id="keypad">
@@ -262,6 +296,34 @@
     const els = (s) => Array.from(document.querySelectorAll(s));
     const make = (tag, cls) => { const x=document.createElement(tag); if(cls) x.className=cls; return x };
     const backspaceOne = (str) => { const a = Array.from(str||''); a.pop(); return a.join('') };
+
+    // 現在のステップ表示
+    function setStepHint(label){
+      const e = document.getElementById('step-hint');
+      if(!e) return;
+      e.textContent = label ? `ステップ：${label}` : '';
+    }
+
+    // 結果表示（全角数字に変換）
+    function setResultText(text){
+      const e = document.getElementById('result-text');
+      if(!e) return;
+      e.textContent = text || '';
+    }
+    function toZenkakuNum(value){
+      return String(value).replace(/[0-9]/g, d =>
+        String.fromCharCode(d.charCodeAt(0) + 0xFEE0)
+      );
+    }
+    function showFinalResult(){
+      if(!Number.isInteger(curDividend) || !Number.isInteger(curDivisor) || curDivisor <= 0) return;
+      const q = Math.floor(curDividend / curDivisor);
+      const r = curDividend % curDivisor;
+      const text =
+        `${toZenkakuNum(curDividend)}÷${toZenkakuNum(curDivisor)}＝` +
+        `${toZenkakuNum(q)}あまり${toZenkakuNum(r)}`;
+      setResultText(text);
+    }
 
     // ========= 問題の状態 =========
     let curDividend = null;  // わられる数
@@ -543,7 +605,9 @@
         stepIndex,
         texts:{},
         hl:[],
-        stepBtn:el('#stepButton').textContent
+        stepBtn:el('#stepButton').textContent,
+        stepHint:el('#step-hint').textContent,
+        result:el('#result-text').textContent
       };
       idsAll.forEach(id=>snap.texts[id]=getText(id));
       snap.hl=[...hissan.querySelectorAll('.cell.calculating')].map(e=>e.id).filter(Boolean);
@@ -563,6 +627,8 @@
         if(e) e.classList.add('calculating');
       });
       el('#stepButton').textContent=s.stepBtn;
+      setStepHint(s.stepHint || '');
+      setResultText(s.result || '');
       el('#undoButton').disabled = history.length===0;
     }
 
@@ -595,6 +661,7 @@
         }
       }
       highlightIds(ids);
+      // ここではステップ名は変えない
     }
 
     // ② 商のマスを黄色
@@ -602,6 +669,7 @@
       const st=stageData[stage];
       const col=qColOfStage(st);
       highlightIds([`q-c${col}`]);
+      setStepHint('たてる');
     }
 
     // ③ 商の数字を書く
@@ -609,6 +677,7 @@
       const st=stageData[stage];
       const col=qColOfStage(st);
       setText(`q-c${col}`, st.qDigit);
+      // たてる中なのでラベルはそのまま
     }
 
     // ④ 部分積を書く場所（下の行）を黄色にする
@@ -622,23 +691,24 @@
         ids.push(`p${stage}-c${col}`);
       }
       highlightIds(ids);
+      setStepHint('かける');
     }
 
-// ⑤ 部分積を書く
-function stepWritePartial(stage){
-  const st  = stageData[stage];
-  const val = st.partial;          // 4×0 なら 0
-  const s   = String(val);        // "0"
+    // ⑤ 部分積を書く
+    function stepWritePartial(stage){
+      const st  = stageData[stage];
+      const val = st.partial;          // 4×0 なら 0
+      const s   = String(val);        // "0"
 
-  const qCol = qColOfStage(st);
-  const start = qCol - (s.length - 1);
+      const qCol = qColOfStage(st);
+      const start = qCol - (s.length - 1);
 
-  for (let j = 0; j < s.length; j++) {
-    const col = start + j;
-    setText(`p${stage}-c${col}`, s[j]);
-  }
-}
-
+      for (let j = 0; j < s.length; j++) {
+        const col = start + j;
+        setText(`p${stage}-c${col}`, s[j]);
+      }
+      // かける中なのでラベルはそのまま
+    }
 
     // ⑥ 引き算の対象と線をハイライト
     function stepHlSubAndLine(stage){
@@ -675,6 +745,8 @@ function stepWritePartial(stage){
         const cell = document.getElementById(`r${stage}-c${col}`);
         if(cell) cell.classList.add('sub-line');
       }
+
+      setStepHint('ひく');
     }
 
     // ⑦ 引き算して余りを書く（赤）
@@ -700,6 +772,7 @@ function stepWritePartial(stage){
       }
       st.remStart = rStart;
       st.remEnd   = qCol;
+      // ひく中なのでラベルはそのまま
     }
 
     // ⑧ 次のステージ用に「桁を降ろす」
@@ -721,6 +794,7 @@ function stepWritePartial(stage){
       setText(`r${curStage}-c${col}`, newDigit);
 
       prev.remEnd = col;
+      setStepHint('おろす');
     }
 
     // ========= stepList の構築 =========
@@ -749,17 +823,28 @@ function stepWritePartial(stage){
     function applyStep(s){
       if(!s) return;
       switch(s.kind){
-        case 'hlChunkDiv': stepHlChunkDiv(s.stage); break;
-        case 'hlQuot':     stepHlQuot(s.stage);     break;
-        case 'writeQuot':  stepWriteQuot(s.stage);  break;
-        case 'hlPartial':  stepHlPartialTarget(s.stage); break;
-        case 'writePartial': stepWritePartial(s.stage);  break;
-        case 'hlSubLine':  stepHlSubAndLine(s.stage);    break;
-        case 'writeRem':   stepWriteRemainder(s.stage);  break;
-        case 'bringDown':  stepBringDown(s.stage);       break;
+        case 'hlChunkDiv':
+          // ステップ名は変更しない
+          stepHlChunkDiv(s.stage); break;
+        case 'hlQuot':
+          stepHlQuot(s.stage);     break;
+        case 'writeQuot':
+          stepWriteQuot(s.stage);  break;
+        case 'hlPartial':
+          stepHlPartialTarget(s.stage); break;
+        case 'writePartial':
+          stepWritePartial(s.stage);  break;
+        case 'hlSubLine':
+          stepHlSubAndLine(s.stage);    break;
+        case 'writeRem':
+          stepWriteRemainder(s.stage);  break;
+        case 'bringDown':
+          stepBringDown(s.stage);       break;
         case 'done':
           clearHighlights();
           el('#stepButton').textContent='リセット';
+          setStepHint('');
+          showFinalResult();            // ★ 計算結果を表示
           break;
       }
     }
@@ -789,6 +874,8 @@ function stepWritePartial(stage){
       clearHighlights();
       el('#stepButton').textContent='▶️ つぎへ';
       el('#undoButton').disabled=true;
+      setStepHint('');
+      setResultText('');
     }
 
     function doStep(){

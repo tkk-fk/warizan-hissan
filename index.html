@@ -22,41 +22,39 @@
       display:flex;
       flex-direction:column;
       align-items:center;
-      gap:14px;
+      gap:10px;
       padding:16px;
       touch-action:none;
     }
 
+    /* タイトル＋ステップ表示 */
+    #titleRow{
+      display:flex;
+      align-items:baseline;
+      gap:12px;
+      width:100%;
+      max-width:960px;
+    }
     h2{
       margin:0;
       color:#0f172a;
       font-size:clamp(20px,3.8vw,28px);
+      white-space:nowrap;
     }
-
-    /* タイトル＋ステップ表示 */
-    .title-row{
-      display:flex;
-      align-items:baseline;
-      justify-content:center;
-      gap:16px;
-    }
-    #step-hint{
-      font-size:clamp(14px,3vw,18px);
-      color:#4b5563;
+    #stepHint{
+      font-size:clamp(12px,2.4vw,16px);
+      color:#475569;
       min-height:1.2em;
+      flex:1;
     }
-    @media (max-width:600px){
-      .title-row{
-        flex-direction:column;
-        gap:4px;
-      }
+    #stepHint::before{
+      content:'ステップ：';
     }
 
-    /* 結果表示 */
-    #result-text{
-      margin-top:8px;
-      font-size:clamp(16px,3vw,20px);
-      color:#111827;
+    #resultText{
+      margin-top:6px;
+      font-size:clamp(14px,2.6vw,18px);
+      color:#0f172a;
       min-height:1.4em;
     }
 
@@ -90,7 +88,7 @@
     #clearButton{ background:#fcd34d; color:#111 }
     #resetButton{ background:#e2e8f0; color:#111 }
 
-    /* ── 盤面 ───────────────────────────────────────── */
+    /* ── 盤面コンテナ ─────────────────────────────── */
     #calculator-wrapper{
       position:relative;
       max-width:100vw;
@@ -186,12 +184,15 @@
       z-index:30;
     }
     #keypad.show{ transform:translateY(0) }
-    @media (max-width: 900px){
+
+    /* モバイルではツールバー分だけ右を空ける */
+    @media (max-width:900px){
       #keypad{
         left:0;
-        right:140px;          /* ツールバー（約112px）＋余白ぶん */
+        right:140px; /* ツールバー幅＋余白 */
       }
     }
+
     .kp-inner{
       background:#111827;
       color:#fff;
@@ -235,18 +236,22 @@
     .kp-btn.ok{ background:#10b981 }
     .kp-btn.fn{ background:#4b5563 }
 
+    /* スマホ向けにツールバーを少し細く */
     @media (max-width:600px){
       .toolbar{ padding:6px 8px }
-      .toolbar button{ padding:8px 10px; font-size:15px }
+      .toolbar button{
+        width:96px;
+        padding:8px 8px;
+        font-size:14px;
+      }
     }
   </style>
 </head>
 
 <body>
-  <!-- タイトル＋現在のステップ表示 -->
-  <div class="title-row">
+  <div id="titleRow">
     <h2>わり算の筆算</h2>
-    <div id="step-hint"></div>
+    <div id="stepHint"><span id="stepLabel"></span></div>
   </div>
 
   <div class="toolbar">
@@ -262,8 +267,7 @@
     <canvas id="drawingCanvas"></canvas>
   </div>
 
-  <!-- 結果表示 -->
-  <div id="result-text"></div>
+  <div id="resultText"></div>
 
   <!-- 式入力キーパッド -->
   <div id="keypad">
@@ -297,32 +301,13 @@
     const make = (tag, cls) => { const x=document.createElement(tag); if(cls) x.className=cls; return x };
     const backspaceOne = (str) => { const a = Array.from(str||''); a.pop(); return a.join('') };
 
-    // 現在のステップ表示
-    function setStepHint(label){
-      const e = document.getElementById('step-hint');
-      if(!e) return;
-      e.textContent = label ? `ステップ：${label}` : '';
+    function setStepLabel(text){
+      const span = el('#stepLabel');
+      if(span) span.textContent = text || '';
     }
-
-    // 結果表示（全角数字に変換）
     function setResultText(text){
-      const e = document.getElementById('result-text');
-      if(!e) return;
-      e.textContent = text || '';
-    }
-    function toZenkakuNum(value){
-      return String(value).replace(/[0-9]/g, d =>
-        String.fromCharCode(d.charCodeAt(0) + 0xFEE0)
-      );
-    }
-    function showFinalResult(){
-      if(!Number.isInteger(curDividend) || !Number.isInteger(curDivisor) || curDivisor <= 0) return;
-      const q = Math.floor(curDividend / curDivisor);
-      const r = curDividend % curDivisor;
-      const text =
-        `${toZenkakuNum(curDividend)}÷${toZenkakuNum(curDivisor)}＝` +
-        `${toZenkakuNum(q)}あまり${toZenkakuNum(r)}`;
-      setResultText(text);
+      const box = el('#resultText');
+      if(box) box.textContent = text || '';
     }
 
     // ========= 問題の状態 =========
@@ -512,15 +497,43 @@
     function autoFitCell(){
       const vw=Math.min(window.innerWidth||0,document.documentElement.clientWidth||0)||window.innerWidth;
       const vh=Math.min(window.innerHeight||0,document.documentElement.clientHeight||0)||window.innerHeight;
-      const toolbarH=document.querySelector('.toolbar')?.getBoundingClientRect().height||0;
 
-      const availW=Math.max(240,vw-24);
-      const availH=Math.max(240,vh-toolbarH-24);
+      const toolbarEl = document.querySelector('.toolbar');
+      const tbRect = toolbarEl ? toolbarEl.getBoundingClientRect() : null;
+      const toolbarH = tbRect ? tbRect.height : 0;
+      const toolbarW = tbRect ? tbRect.width : 0;
 
-      const cellW=Math.floor(availW/Math.max(3,cols||4));
-      const cellH=Math.floor(availH/Math.max(4,rowCount||6));
+      const wrapper = document.getElementById('calculator-wrapper');
+
+      let availW;
+      if(vw <= 900 && toolbarW){
+        // スマホ・タブレット：ツールバー分だけ横幅を削る
+        const margin = 12;
+        availW = Math.max(200, vw - toolbarW - margin*2);
+        if(wrapper){
+          wrapper.style.marginRight = (toolbarW + margin) + 'px';
+          wrapper.style.alignSelf = 'flex-start';
+          wrapper.style.maxWidth = availW + 'px';
+        }
+      }else{
+        // PCなど：中央寄せでOK
+        availW = Math.max(260, vw - 24);
+        if(wrapper){
+          wrapper.style.marginRight = '0';
+          wrapper.style.alignSelf = 'center';
+          wrapper.style.maxWidth = 'none';
+        }
+      }
+
+      const availH=Math.max(260,vh-toolbarH-24);
+
+      const colsCount = Math.max(3,cols||4);
+      const rowsCount = Math.max(4,rowCount||6);
+
+      const cellW=Math.floor(availW/colsCount);
+      const cellH=Math.floor(availH/rowsCount);
       let cell=Math.min(96,cellW,cellH);
-      if(!cell||cell<32) cell=32;
+      if(!cell||cell<28) cell=28;
       document.documentElement.style.setProperty('--cell',cell+'px');
     }
 
@@ -606,8 +619,8 @@
         texts:{},
         hl:[],
         stepBtn:el('#stepButton').textContent,
-        stepHint:el('#step-hint').textContent,
-        result:el('#result-text').textContent
+        stepLabel:el('#stepLabel')?.textContent||'',
+        result:el('#resultText')?.textContent||''
       };
       idsAll.forEach(id=>snap.texts[id]=getText(id));
       snap.hl=[...hissan.querySelectorAll('.cell.calculating')].map(e=>e.id).filter(Boolean);
@@ -627,8 +640,8 @@
         if(e) e.classList.add('calculating');
       });
       el('#stepButton').textContent=s.stepBtn;
-      setStepHint(s.stepHint || '');
-      setResultText(s.result || '');
+      setStepLabel(s.stepLabel);
+      setResultText(s.result);
       el('#undoButton').disabled = history.length===0;
     }
 
@@ -661,7 +674,6 @@
         }
       }
       highlightIds(ids);
-      // ここではステップ名は変えない
     }
 
     // ② 商のマスを黄色
@@ -669,7 +681,6 @@
       const st=stageData[stage];
       const col=qColOfStage(st);
       highlightIds([`q-c${col}`]);
-      setStepHint('たてる');
     }
 
     // ③ 商の数字を書く
@@ -677,7 +688,6 @@
       const st=stageData[stage];
       const col=qColOfStage(st);
       setText(`q-c${col}`, st.qDigit);
-      // たてる中なのでラベルはそのまま
     }
 
     // ④ 部分積を書く場所（下の行）を黄色にする
@@ -691,14 +701,13 @@
         ids.push(`p${stage}-c${col}`);
       }
       highlightIds(ids);
-      setStepHint('かける');
     }
 
     // ⑤ 部分積を書く
     function stepWritePartial(stage){
       const st  = stageData[stage];
-      const val = st.partial;          // 4×0 なら 0
-      const s   = String(val);        // "0"
+      const val = st.partial;
+      const s   = String(val);
 
       const qCol = qColOfStage(st);
       const start = qCol - (s.length - 1);
@@ -707,7 +716,6 @@
         const col = start + j;
         setText(`p${stage}-c${col}`, s[j]);
       }
-      // かける中なのでラベルはそのまま
     }
 
     // ⑥ 引き算の対象と線をハイライト
@@ -745,8 +753,6 @@
         const cell = document.getElementById(`r${stage}-c${col}`);
         if(cell) cell.classList.add('sub-line');
       }
-
-      setStepHint('ひく');
     }
 
     // ⑦ 引き算して余りを書く（赤）
@@ -772,7 +778,6 @@
       }
       st.remStart = rStart;
       st.remEnd   = qCol;
-      // ひく中なのでラベルはそのまま
     }
 
     // ⑧ 次のステージ用に「桁を降ろす」
@@ -794,7 +799,21 @@
       setText(`r${curStage}-c${col}`, newDigit);
 
       prev.remEnd = col;
-      setStepHint('おろす');
+    }
+
+    // ========= 結果表示 =========
+    function showFinalResult(){
+      if(!Number.isInteger(curDividend)||!Number.isInteger(curDivisor)||curDivisor<=0){
+        setResultText('');
+        return;
+      }
+      const q = Math.floor(curDividend/curDivisor);
+      const r = curDividend % curDivisor;
+      if(r===0){
+        setResultText(`${curDividend}÷${curDivisor}＝${q}`);
+      }else{
+        setResultText(`${curDividend}÷${curDivisor}＝${q} あまり ${r}`);
+      }
     }
 
     // ========= stepList の構築 =========
@@ -824,27 +843,38 @@
       if(!s) return;
       switch(s.kind){
         case 'hlChunkDiv':
-          // ステップ名は変更しない
-          stepHlChunkDiv(s.stage); break;
+          stepHlChunkDiv(s.stage);
+          break;
         case 'hlQuot':
-          stepHlQuot(s.stage);     break;
+          setStepLabel('たてる');
+          stepHlQuot(s.stage);
+          break;
         case 'writeQuot':
-          stepWriteQuot(s.stage);  break;
+          stepWriteQuot(s.stage);
+          break;
         case 'hlPartial':
-          stepHlPartialTarget(s.stage); break;
+          setStepLabel('かける');
+          stepHlPartialTarget(s.stage);
+          break;
         case 'writePartial':
-          stepWritePartial(s.stage);  break;
+          stepWritePartial(s.stage);
+          break;
         case 'hlSubLine':
-          stepHlSubAndLine(s.stage);    break;
+          setStepLabel('ひく');
+          stepHlSubAndLine(s.stage);
+          break;
         case 'writeRem':
-          stepWriteRemainder(s.stage);  break;
+          stepWriteRemainder(s.stage);
+          break;
         case 'bringDown':
-          stepBringDown(s.stage);       break;
+          setStepLabel('おろす');
+          stepBringDown(s.stage);
+          break;
         case 'done':
           clearHighlights();
+          setStepLabel('');
+          showFinalResult();
           el('#stepButton').textContent='リセット';
-          setStepHint('');
-          showFinalResult();            // ★ 計算結果を表示
           break;
       }
     }
@@ -874,7 +904,7 @@
       clearHighlights();
       el('#stepButton').textContent='▶️ つぎへ';
       el('#undoButton').disabled=true;
-      setStepHint('');
+      setStepLabel('');
       setResultText('');
     }
 

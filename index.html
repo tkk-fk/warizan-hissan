@@ -22,43 +22,20 @@
       display:flex;
       flex-direction:column;
       align-items:center;
-      gap:10px;
+      gap:14px;
       padding:16px;
-      touch-action:none;
+      /* スクロールなどの基本操作は許可しつつ、
+         ダブルタップズームを抑制する方向に寄せる */
+      touch-action:manipulation;
     }
 
-    /* タイトル＋ステップ表示 */
-    #titleRow{
-      display:flex;
-      align-items:baseline;
-      gap:12px;
-      width:100%;
-      max-width:960px;
-    }
     h2{
       margin:0;
       color:#0f172a;
       font-size:clamp(20px,3.8vw,28px);
-      white-space:nowrap;
-    }
-    #stepHint{
-      font-size:clamp(12px,2.4vw,16px);
-      color:#475569;
-      min-height:1.2em;
-      flex:1;
-    }
-    #stepHint::before{
-      content:'ステップ：';
     }
 
-    #resultText{
-      margin-top:6px;
-      font-size:clamp(14px,2.6vw,18px);
-      color:#0f172a;
-      min-height:1.4em;
-    }
-
-    /* ── 右側ツールバー ─────────────────────────────── */
+    /* ── 操作ボタン ─────────────────────────────── */
     .toolbar{
       position:fixed;
       right:max(env(safe-area-inset-right),10px);
@@ -88,7 +65,7 @@
     #clearButton{ background:#fcd34d; color:#111 }
     #resetButton{ background:#e2e8f0; color:#111 }
 
-    /* ── 盤面コンテナ ─────────────────────────────── */
+    /* ── 盤面 ───────────────────────────────────────── */
     #calculator-wrapper{
       position:relative;
       max-width:100vw;
@@ -136,12 +113,12 @@
     .partial-cell{ color:#059669 }
     .rem-cell{ color:#b91c1c }
 
-    /* ★ 引き算用の線：マスの上側に表示して残す ★ */
+    /* 引き算用の線：マスの上側に表示して残す */
     .rem-cell.sub-line{
       border-top:2px solid #0f172a;
     }
 
-    /* ★ 括弧「）」＋右半分だけの横線 ★ */
+    /* 括弧「）」＋右半分だけの横線 */
     .bracket-mid{
       position:relative;
       overflow:hidden;
@@ -185,12 +162,45 @@
     }
     #keypad.show{ transform:translateY(0) }
 
-    /* モバイルではツールバー分だけ右を空ける */
-    @media (max-width:900px){
+    @media (max-width: 900px){
       #keypad{
         left:0;
-        right:140px; /* ツールバー幅＋余白 */
+        right:140px;          /* 右端に少し余白（以前の仕様を維持） */
       }
+    }
+
+    /* ★スマホでは盤面の下に２段レイアウト★ */
+    @media (max-width: 768px){
+      #calculator-wrapper{
+        order:1;
+      }
+      .toolbar{
+        order:2;
+        position:static;
+        right:auto;
+        top:auto;
+        display:grid;
+        grid-template-columns:repeat(3,minmax(0,1fr));
+        grid-auto-rows:minmax(44px,auto);
+        width:100%;
+        max-width:480px;
+        margin-top:12px;
+        gap:8px;
+        padding:0 8px 8px;
+        justify-items:stretch;
+        background:transparent;
+        box-shadow:none;
+      }
+      .toolbar button{
+        width:100%;
+      }
+      /* 1段目：つぎへ・もどす */
+      #stepButton{ grid-column:1 / 2; }
+      #undoButton{ grid-column:2 / 3; }
+      /* 2段目：かく・けす・リセット */
+      #drawButton{  grid-column:1 / 2; }
+      #clearButton{ grid-column:2 / 3; }
+      #resetButton{ grid-column:3 / 4; }
     }
 
     .kp-inner{
@@ -236,23 +246,15 @@
     .kp-btn.ok{ background:#10b981 }
     .kp-btn.fn{ background:#4b5563 }
 
-    /* スマホ向けにツールバーを少し細く */
     @media (max-width:600px){
       .toolbar{ padding:6px 8px }
-      .toolbar button{
-        width:96px;
-        padding:8px 8px;
-        font-size:14px;
-      }
+      .toolbar button{ padding:8px 10px; font-size:15px }
     }
   </style>
 </head>
 
 <body>
-  <div id="titleRow">
-    <h2>わり算の筆算</h2>
-    <div id="stepHint"><span id="stepLabel"></span></div>
-  </div>
+  <h2>わり算の筆算</h2>
 
   <div class="toolbar">
     <button id="stepButton">▶️ つぎへ</button>
@@ -266,8 +268,6 @@
     <div id="hissan-display"></div>
     <canvas id="drawingCanvas"></canvas>
   </div>
-
-  <div id="resultText"></div>
 
   <!-- 式入力キーパッド -->
   <div id="keypad">
@@ -301,14 +301,15 @@
     const make = (tag, cls) => { const x=document.createElement(tag); if(cls) x.className=cls; return x };
     const backspaceOne = (str) => { const a = Array.from(str||''); a.pop(); return a.join('') };
 
-    function setStepLabel(text){
-      const span = el('#stepLabel');
-      if(span) span.textContent = text || '';
-    }
-    function setResultText(text){
-      const box = el('#resultText');
-      if(box) box.textContent = text || '';
-    }
+    // ========= ダブルタップ拡大を防ぐ =========
+    let lastTouchEnd = 0;
+    document.addEventListener('touchend', function(e){
+      const now = Date.now();
+      if(now - lastTouchEnd <= 300){
+        e.preventDefault();  // 2回目のタップでズームしない
+      }
+      lastTouchEnd = now;
+    }, {passive:false});
 
     // ========= 問題の状態 =========
     let curDividend = null;  // わられる数
@@ -497,43 +498,15 @@
     function autoFitCell(){
       const vw=Math.min(window.innerWidth||0,document.documentElement.clientWidth||0)||window.innerWidth;
       const vh=Math.min(window.innerHeight||0,document.documentElement.clientHeight||0)||window.innerHeight;
+      const toolbarH=document.querySelector('.toolbar')?.getBoundingClientRect().height||0;
 
-      const toolbarEl = document.querySelector('.toolbar');
-      const tbRect = toolbarEl ? toolbarEl.getBoundingClientRect() : null;
-      const toolbarH = tbRect ? tbRect.height : 0;
-      const toolbarW = tbRect ? tbRect.width : 0;
+      const availW=Math.max(240,vw-24);
+      const availH=Math.max(240,vh-toolbarH-24);
 
-      const wrapper = document.getElementById('calculator-wrapper');
-
-      let availW;
-      if(vw <= 900 && toolbarW){
-        // スマホ・タブレット：ツールバー分だけ横幅を削る
-        const margin = 12;
-        availW = Math.max(200, vw - toolbarW - margin*2);
-        if(wrapper){
-          wrapper.style.marginRight = (toolbarW + margin) + 'px';
-          wrapper.style.alignSelf = 'flex-start';
-          wrapper.style.maxWidth = availW + 'px';
-        }
-      }else{
-        // PCなど：中央寄せでOK
-        availW = Math.max(260, vw - 24);
-        if(wrapper){
-          wrapper.style.marginRight = '0';
-          wrapper.style.alignSelf = 'center';
-          wrapper.style.maxWidth = 'none';
-        }
-      }
-
-      const availH=Math.max(260,vh-toolbarH-24);
-
-      const colsCount = Math.max(3,cols||4);
-      const rowsCount = Math.max(4,rowCount||6);
-
-      const cellW=Math.floor(availW/colsCount);
-      const cellH=Math.floor(availH/rowsCount);
+      const cellW=Math.floor(availW/Math.max(3,cols||4));
+      const cellH=Math.floor(availH/Math.max(4,rowCount||6));
       let cell=Math.min(96,cellW,cellH);
-      if(!cell||cell<28) cell=28;
+      if(!cell||cell<32) cell=32;
       document.documentElement.style.setProperty('--cell',cell+'px');
     }
 
@@ -618,9 +591,7 @@
         stepIndex,
         texts:{},
         hl:[],
-        stepBtn:el('#stepButton').textContent,
-        stepLabel:el('#stepLabel')?.textContent||'',
-        result:el('#resultText')?.textContent||''
+        stepBtn:el('#stepButton').textContent
       };
       idsAll.forEach(id=>snap.texts[id]=getText(id));
       snap.hl=[...hissan.querySelectorAll('.cell.calculating')].map(e=>e.id).filter(Boolean);
@@ -640,13 +611,10 @@
         if(e) e.classList.add('calculating');
       });
       el('#stepButton').textContent=s.stepBtn;
-      setStepLabel(s.stepLabel);
-      setResultText(s.result);
       el('#undoButton').disabled = history.length===0;
     }
 
     // ========= ステップごとの処理 =========
-
     function qColOfStage(st){
       return dividendStart + st.endIndex;
     }
@@ -659,13 +627,11 @@
       for(let c=0;c<lenDivisor;c++) ids.push(`divisor-c${c}`);
 
       if(stage===0){
-        // 最初のステージ：上のわられる数の桁
         for(let k=st.highlightStart;k<=st.highlightEnd;k++){
           const col = dividendStart + k;
           ids.push(`d-c${col}`);
         }
       }else{
-        // 2ステージ目以降：前ステージの余り（赤の列）＋降ろした桁
         const prev = stageData[stage-1];
         if(prev.remStart!=null && prev.remEnd!=null){
           for(let col=prev.remStart; col<=prev.remEnd; col++){
@@ -703,7 +669,7 @@
       highlightIds(ids);
     }
 
-    // ⑤ 部分積を書く
+    // ⑤ 部分積を書く（0も消えずに表示）
     function stepWritePartial(stage){
       const st  = stageData[stage];
       const val = st.partial;
@@ -726,7 +692,6 @@
       const qCol=qColOfStage(st);
       const pStart=qCol-(partStr.length-1);
 
-      // current（引かれる数側）のハイライト
       if(stage===0){
         for(let k=st.highlightStart;k<=st.highlightEnd;k++){
           const col=dividendStart+k;
@@ -741,7 +706,7 @@
         }
       }
 
-      // 部分積（緑）のハイライト
+      // 部分積（緑）
       for(let col=pStart; col<=qCol; col++){
         ids.push(`p${stage}-c${col}`);
       }
@@ -801,21 +766,6 @@
       prev.remEnd = col;
     }
 
-    // ========= 結果表示 =========
-    function showFinalResult(){
-      if(!Number.isInteger(curDividend)||!Number.isInteger(curDivisor)||curDivisor<=0){
-        setResultText('');
-        return;
-      }
-      const q = Math.floor(curDividend/curDivisor);
-      const r = curDividend % curDivisor;
-      if(r===0){
-        setResultText(`${curDividend}÷${curDivisor}＝${q}`);
-      }else{
-        setResultText(`${curDividend}÷${curDivisor}＝${q} あまり ${r}`);
-      }
-    }
-
     // ========= stepList の構築 =========
     function buildSteps(){
       stepList=[];
@@ -842,38 +792,16 @@
     function applyStep(s){
       if(!s) return;
       switch(s.kind){
-        case 'hlChunkDiv':
-          stepHlChunkDiv(s.stage);
-          break;
-        case 'hlQuot':
-          setStepLabel('たてる');
-          stepHlQuot(s.stage);
-          break;
-        case 'writeQuot':
-          stepWriteQuot(s.stage);
-          break;
-        case 'hlPartial':
-          setStepLabel('かける');
-          stepHlPartialTarget(s.stage);
-          break;
-        case 'writePartial':
-          stepWritePartial(s.stage);
-          break;
-        case 'hlSubLine':
-          setStepLabel('ひく');
-          stepHlSubAndLine(s.stage);
-          break;
-        case 'writeRem':
-          stepWriteRemainder(s.stage);
-          break;
-        case 'bringDown':
-          setStepLabel('おろす');
-          stepBringDown(s.stage);
-          break;
+        case 'hlChunkDiv': stepHlChunkDiv(s.stage); break;
+        case 'hlQuot':     stepHlQuot(s.stage);     break;
+        case 'writeQuot':  stepWriteQuot(s.stage);  break;
+        case 'hlPartial':  stepHlPartialTarget(s.stage); break;
+        case 'writePartial': stepWritePartial(s.stage);  break;
+        case 'hlSubLine':  stepHlSubAndLine(s.stage);    break;
+        case 'writeRem':   stepWriteRemainder(s.stage);  break;
+        case 'bringDown':  stepBringDown(s.stage);       break;
         case 'done':
           clearHighlights();
-          setStepLabel('');
-          showFinalResult();
           el('#stepButton').textContent='リセット';
           break;
       }
@@ -904,8 +832,6 @@
       clearHighlights();
       el('#stepButton').textContent='▶️ つぎへ';
       el('#undoButton').disabled=true;
-      setStepLabel('');
-      setResultText('');
     }
 
     function doStep(){

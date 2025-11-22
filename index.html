@@ -23,10 +23,8 @@
       flex-direction:column;
       align-items:center;
       gap:14px;
-      padding:16px;
-      /* スクロールなどの基本操作は許可しつつ、
-         ダブルタップズームを抑制する方向に寄せる */
-      touch-action:manipulation;
+      padding:16px 16px calc(96px + env(safe-area-inset-bottom));
+      touch-action:none;
     }
 
     h2{
@@ -35,28 +33,29 @@
       font-size:clamp(20px,3.8vw,28px);
     }
 
-    /* ── 操作ボタン ─────────────────────────────── */
+    /* ── 下部ツールバー（ボタン群）──────────────────── */
     .toolbar{
       position:fixed;
-      right:max(env(safe-area-inset-right),10px);
-      top:clamp(64px,8vh,96px);
+      left:50%;
+      bottom:calc(8px + env(safe-area-inset-bottom));
+      transform:translateX(-50%);
       display:flex;
-      flex-direction:column;
+      flex-direction:row;
       gap:8px;
-      background:transparent;
-      padding:0;
-      border:none;
-      box-shadow:none;
-      z-index:40;
+      background:rgba(15,23,42,0.02);
+      padding:4px 8px;
+      border-radius:12px;
+      z-index:20;
     }
     .toolbar button{
-      width:112px;
-      padding:10px 12px;
-      font-size:16px;
+      min-width:72px;
+      padding:8px 10px;
+      font-size:14px;
       border:none;
       border-radius:10px;
       cursor:pointer;
       font-weight:700;
+      white-space:nowrap;
     }
     #stepButton{  background:#0f172a; color:#fff }
     #undoButton{  background:#334155; color:#fff }
@@ -113,12 +112,12 @@
     .partial-cell{ color:#059669 }
     .rem-cell{ color:#b91c1c }
 
-    /* 引き算用の線：マスの上側に表示して残す */
+    /* ★ 引き算用の線：マスの上側に表示して残す ★ */
     .rem-cell.sub-line{
       border-top:2px solid #0f172a;
     }
 
-    /* 括弧「）」＋右半分だけの横線 */
+    /* ★ 括弧「）」＋右半分だけの横線 ★ */
     .bracket-mid{
       position:relative;
       overflow:hidden;
@@ -158,50 +157,14 @@
       bottom:0;
       transform:translateY(100%);
       transition:transform .2s ease;
-      z-index:30;
-    }
-    #keypad.show{ transform:translateY(0) }
-
-    @media (max-width: 900px){
-      #keypad{
-        left:0;
-        right:140px;          /* 右端に少し余白（以前の仕様を維持） */
-      }
+      z-index:999;   /* ★ 常に最前面（ボタン群より上） ★ */
     }
 
-    /* ★スマホでは盤面の下に２段レイアウト★ */
-    @media (max-width: 768px){
-      #calculator-wrapper{
-        order:1;
-      }
-      .toolbar{
-        order:2;
-        position:static;
-        right:auto;
-        top:auto;
-        display:grid;
-        grid-template-columns:repeat(3,minmax(0,1fr));
-        grid-auto-rows:minmax(44px,auto);
-        width:100%;
-        max-width:480px;
-        margin-top:12px;
-        gap:8px;
-        padding:0 8px 8px;
-        justify-items:stretch;
-        background:transparent;
-        box-shadow:none;
-      }
-      .toolbar button{
-        width:100%;
-      }
-      /* 1段目：つぎへ・もどす */
-      #stepButton{ grid-column:1 / 2; }
-      #undoButton{ grid-column:2 / 3; }
-      /* 2段目：かく・けす・リセット */
-      #drawButton{  grid-column:1 / 2; }
-      #clearButton{ grid-column:2 / 3; }
-      #resetButton{ grid-column:3 / 4; }
-    }
+
+/* show クラスが付いたらキーパッドを表示 */
+#keypad.show{
+  transform: translateY(0);
+}
 
     .kp-inner{
       background:#111827;
@@ -247,8 +210,7 @@
     .kp-btn.fn{ background:#4b5563 }
 
     @media (max-width:600px){
-      .toolbar{ padding:6px 8px }
-      .toolbar button{ padding:8px 10px; font-size:15px }
+      .toolbar button{ font-size:13px; padding:7px 8px; min-width:64px }
     }
   </style>
 </head>
@@ -256,17 +218,18 @@
 <body>
   <h2>わり算の筆算</h2>
 
+  <div id="calculator-wrapper">
+    <div id="hissan-display"></div>
+    <canvas id="drawingCanvas"></canvas>
+  </div>
+
+  <!-- 下部ボタン群 -->
   <div class="toolbar">
     <button id="stepButton">▶️ つぎへ</button>
     <button id="undoButton">⏮ もどす</button>
     <button id="drawButton">✏️ かく</button>
     <button id="clearButton">けす</button>
     <button id="resetButton">リセット</button>
-  </div>
-
-  <div id="calculator-wrapper">
-    <div id="hissan-display"></div>
-    <canvas id="drawingCanvas"></canvas>
   </div>
 
   <!-- 式入力キーパッド -->
@@ -300,16 +263,6 @@
     const els = (s) => Array.from(document.querySelectorAll(s));
     const make = (tag, cls) => { const x=document.createElement(tag); if(cls) x.className=cls; return x };
     const backspaceOne = (str) => { const a = Array.from(str||''); a.pop(); return a.join('') };
-
-    // ========= ダブルタップ拡大を防ぐ =========
-    let lastTouchEnd = 0;
-    document.addEventListener('touchend', function(e){
-      const now = Date.now();
-      if(now - lastTouchEnd <= 300){
-        e.preventDefault();  // 2回目のタップでズームしない
-      }
-      lastTouchEnd = now;
-    }, {passive:false});
 
     // ========= 問題の状態 =========
     let curDividend = null;  // わられる数
@@ -615,6 +568,7 @@
     }
 
     // ========= ステップごとの処理 =========
+
     function qColOfStage(st){
       return dividendStart + st.endIndex;
     }
@@ -627,11 +581,13 @@
       for(let c=0;c<lenDivisor;c++) ids.push(`divisor-c${c}`);
 
       if(stage===0){
+        // 最初のステージ：上のわられる数の桁
         for(let k=st.highlightStart;k<=st.highlightEnd;k++){
           const col = dividendStart + k;
           ids.push(`d-c${col}`);
         }
       }else{
+        // 2ステージ目以降：前ステージの余り（赤の列）＋降ろした桁
         const prev = stageData[stage-1];
         if(prev.remStart!=null && prev.remEnd!=null){
           for(let col=prev.remStart; col<=prev.remEnd; col++){
@@ -669,15 +625,13 @@
       highlightIds(ids);
     }
 
-    // ⑤ 部分積を書く（0も消えずに表示）
+    // ⑤ 部分積を書く（0 のときも消さずに 0 を表示）
     function stepWritePartial(stage){
       const st  = stageData[stage];
       const val = st.partial;
       const s   = String(val);
-
       const qCol = qColOfStage(st);
       const start = qCol - (s.length - 1);
-
       for (let j = 0; j < s.length; j++) {
         const col = start + j;
         setText(`p${stage}-c${col}`, s[j]);
@@ -692,6 +646,7 @@
       const qCol=qColOfStage(st);
       const pStart=qCol-(partStr.length-1);
 
+      // current（引かれる数側）のハイライト
       if(stage===0){
         for(let k=st.highlightStart;k<=st.highlightEnd;k++){
           const col=dividendStart+k;
@@ -706,7 +661,7 @@
         }
       }
 
-      // 部分積（緑）
+      // 部分積（緑）のハイライト
       for(let col=pStart; col<=qCol; col++){
         ids.push(`p${stage}-c${col}`);
       }

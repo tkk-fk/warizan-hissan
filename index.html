@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <title>わり算の筆算ステップ</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&display=swap" rel="stylesheet">
+
+  <style>
+    :root{ --cell:96px }
+
+    *{ box-sizing:border-box }
+
+    body{
+      font-family:'BIZ UDPGothic',system-ui,-apple-system,'Hiragino Sans','Noto Sans CJK JP',Meiryo,sans-serif;
+      background:#f4f7fb;
+      margin:0;
+      display:flex;
+      flex-direction:column;
+      align-items:center;
+      gap:14px;
+      padding:16px;
+      touch-action:none;
+    }
+
+    h2{
+      margin:0;
+      color:#0f172a;
+      font-size:clamp(20px,3.8vw,28px);
+    }
+
+    /* ── 右側ツールバー ─────────────────────────────── */
+    .toolbar{
+      position:fixed;
+      right:max(env(safe-area-inset-right),10px);
+      top:clamp(64px,8vh,96px);
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      background:transparent;
+      padding:0;
+      border:none;
+      box-shadow:none;
+      z-index:40;
+    }
+    .toolbar button{
+      width:112px;
+      padding:10px 12px;
+      font-size:16px;
+      border:none;
+      border-radius:10px;
+      cursor:pointer;
+      font-weight:700;
+    }
+    #stepButton{  background:#0f172a; color:#fff }
+    #undoButton{  background:#334155; color:#fff }
+    #drawButton{  background:#64748b; color:#fff }
+    #drawButton.active{ background:#dc3545; box-shadow:0 0 0 3px rgba(220,53,69,.15) }
+    #clearButton{ background:#fcd34d; color:#111 }
+    #resetButton{ background:#e2e8f0; color:#111 }
+
+    /* ── 盤面 ───────────────────────────────────────── */
+    #calculator-wrapper{
+      position:relative;
+      max-width:100vw;
+      overflow:hidden;
+    }
+
+    #hissan-display{
+      display:grid;
+      grid-auto-rows:auto;
+      gap:0;
+      background:#fff;
+      border:2px solid #0f172a;
+      border-radius:12px;
+      padding:10px;
+      box-shadow:0 10px 30px rgba(0,0,0,.08);
+    }
+
+    .cell{
+      width:var(--cell);
+      height:var(--cell);
+      border:1px solid #e2e8f0;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      font-size:clamp(24px, calc(var(--cell)*0.44), 56px);
+      color:#0f172a;
+      position:relative;
+      transition:background-color .15s, border-color .15s;
+    }
+
+    .cell.calculating{
+      background:#fff8c4;
+      border-color:#f7d777;
+    }
+
+    .quot-cell{ font-weight:800 }
+    .divisor-digit{ font-weight:700 }
+    .dividend-digit{ font-weight:700; color:#1d4ed8 }
+
+    /* わられる数の上の横線（全幅） */
+    .dividend-top{
+      border-top:2px solid #0f172a;
+    }
+
+    .partial-cell{ color:#059669 }
+    .rem-cell{ color:#b91c1c }
+
+    /* ★ 引き算用の線：マスの上側に表示して残す ★ */
+    .rem-cell.sub-line{
+      border-top:2px solid #0f172a;
+    }
+
+    /* ★ 括弧「）」＋右半分だけの横線 ★ */
+    .bracket-mid{
+      position:relative;
+      overflow:hidden;
+      font-size:clamp(32px, calc(var(--cell)*0.7), 56px);
+      border-top:none;
+    }
+    .bracket-mid::before{
+      content:'）';
+      position:absolute;
+      top:50%;
+      right:15%;
+      transform:translateY(-50%);
+      color:#0f172a;
+    }
+    .bracket-mid::after{
+      content:'';
+      position:absolute;
+      top:0;
+      left:50%;
+      right:0;
+      border-top:2px solid #0f172a;
+    }
+
+    /* 手書きレイヤー */
+    #drawingCanvas{
+      position:absolute;
+      inset:0;
+      pointer-events:none;
+      touch-action:none;
+    }
+
+    /* ── キーパッド（式入力） ─────────────────────── */
+    #keypad{
+      position:fixed;
+      left:0;
+      right:0;
+      bottom:0;
+      transform:translateY(100%);
+      transition:transform .2s ease;
+      z-index:30;
+    }
+    #keypad.show{ transform:translateY(0) }
+@media (max-width: 900px){
+  #keypad{
+    left:0;
+    right:140px;          /* ツールバー（約112px）＋余白ぶん */
+  }
+}
+    .kp-inner{
+      background:#111827;
+      color:#fff;
+      border-top-left-radius:16px;
+      border-top-right-radius:16px;
+      padding:12px 12px 16px;
+      box-shadow:0 -12px 32px rgba(0,0,0,.35);
+    }
+    .kp-title{
+      font-size:14px;
+      opacity:.85;
+      margin-bottom:4px;
+    }
+    .kp-display{
+      font-size:24px;
+      letter-spacing:3px;
+      background:#fff;
+      color:#111;
+      padding:10px 12px;
+      border-radius:10px;
+      text-align:right;
+      margin-bottom:8px;
+      border:1px solid #e5e7eb;
+    }
+    .kp-grid{
+      display:grid;
+      grid-template-columns:repeat(3,1fr);
+      gap:8px;
+    }
+    .kp-btn{
+      background:#374151;
+      color:#fff;
+      border:none;
+      border-radius:12px;
+      padding:14px 0;
+      font-size:22px;
+      font-weight:800;
+    }
+    .kp-btn.div{ background:#f97316; color:#111 }
+    .kp-btn.wide{ grid-column:span 2 }
+    .kp-btn.ok{ background:#10b981 }
+    .kp-btn.fn{ background:#4b5563 }
+
+    @media (max-width:600px){
+      .toolbar{ padding:6px 8px }
+      .toolbar button{ padding:8px 10px; font-size:15px }
+    }
+  </style>
+</head>
+
+<body>
+  <h2>わり算の筆算</h2>
+
+  <div class="toolbar">
+    <button id="stepButton">▶️ つぎへ</button>
+    <button id="undoButton">⏮ もどす</button>
+    <button id="drawButton">✏️ かく</button>
+    <button id="clearButton">けす</button>
+    <button id="resetButton">リセット</button>
+  </div>
+
+  <div id="calculator-wrapper">
+    <div id="hissan-display"></div>
+    <canvas id="drawingCanvas"></canvas>
+  </div>
+
+  <!-- 式入力キーパッド -->
+  <div id="keypad">
+    <div class="kp-inner">
+      <div class="kp-title" id="kp-title">問題を入力（例：586÷4）</div>
+      <div class="kp-display" id="kp-display"></div>
+      <div class="kp-grid">
+        <button class="kp-btn">1</button>
+        <button class="kp-btn">2</button>
+        <button class="kp-btn">3</button>
+        <button class="kp-btn">4</button>
+        <button class="kp-btn">5</button>
+        <button class="kp-btn">6</button>
+        <button class="kp-btn">7</button>
+        <button class="kp-btn">8</button>
+        <button class="kp-btn">9</button>
+        <button class="kp-btn div">÷</button>
+        <button class="kp-btn">0</button>
+        <button class="kp-btn fn">⌫</button>
+        <button class="kp-btn wide fn">C</button>
+        <button class="kp-btn wide ok">計算</button>
+        <button class="kp-btn wide fn" id="kp-cancel">キャンセル</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ========= ユーティリティ =========
+    const el  = (s) => document.querySelector(s);
+    const els = (s) => Array.from(document.querySelectorAll(s));
+    const make = (tag, cls) => { const x=document.createElement(tag); if(cls) x.className=cls; return x };
+    const backspaceOne = (str) => { const a = Array.from(str||''); a.pop(); return a.join('') };
+
+    // ========= 問題の状態 =========
+    let curDividend = null;  // わられる数
+    let curDivisor  = null;  // わる数
+
+    let lenDividend = 0;
+    let lenDivisor  = 0;
+    let cols        = 0;
+    let dividendStart = 0;
+    let bracketCol    = 0;
+    let rowCount   = 0;
+
+    // stageData: 各ステージごとの情報
+    let stageData = [];
+    let stepList  = [];
+    let stepIndex = -1;
+    let history   = [];
+    let idsAll    = [];
+
+    const hissan  = document.getElementById('hissan-display');
+    const canvas  = document.getElementById('drawingCanvas');
+    const ctx     = canvas.getContext('2d');
+    let isDrawingMode = false;
+    let isDrawing     = false;
+
+    function setText(id, v){
+      const e=document.getElementById(id);
+      if(!e) return;
+      e.textContent = (v===null||v===undefined)? '' : String(v);
+    }
+    function getText(id){
+      const e=document.getElementById(id);
+      return e ? e.textContent : '';
+    }
+
+    // ========= ステージデータの計算 =========
+    function computeStageData(dividend, divisor){
+      stageData=[];
+      if(!Number.isInteger(dividend)||!Number.isInteger(divisor)||divisor<=0) return;
+
+      const digits = String(dividend).split('').map(d=>parseInt(d,10));
+      const n = digits.length;
+
+      if(dividend<divisor){
+        stageData.push({
+          stage:0,
+          current:dividend,
+          qDigit:0,
+          partial:0,
+          remainder:dividend,
+          endIndex:n-1,
+          highlightStart:0,
+          highlightEnd:n-1,
+          remStart:null,
+          remEnd:null
+        });
+        return;
+      }
+
+      let chunkEnd = 0;
+      let current  = digits[0];
+      while(current<divisor && chunkEnd+1<n){
+        chunkEnd++;
+        current = current*10 + digits[chunkEnd];
+      }
+      if(current<divisor){
+        stageData.push({
+          stage:0,
+          current:dividend,
+          qDigit:0,
+          partial:0,
+          remainder:dividend,
+          endIndex:n-1,
+          highlightStart:0,
+          highlightEnd:n-1,
+          remStart:null,
+          remEnd:null
+        });
+        return;
+      }
+
+      let isFirst=true;
+      while(true){
+        const qDigit   = Math.floor(current/divisor);
+        const partial  = qDigit*divisor;
+        const remainder= current-partial;
+
+        stageData.push({
+          stage:stageData.length,
+          current,
+          qDigit,
+          partial,
+          remainder,
+          endIndex:chunkEnd,
+          highlightStart:isFirst?0:chunkEnd,
+          highlightEnd:chunkEnd,
+          remStart:null,
+          remEnd:null
+        });
+
+        if(chunkEnd===n-1) break;
+
+        chunkEnd++;
+        current = remainder*10 + digits[chunkEnd];
+        isFirst=false;
+      }
+    }
+
+    // ========= 盤面生成 =========
+    function buildBoard(nDividend,nDivisor){
+      const hasProblem = Number.isInteger(nDividend)&&Number.isInteger(nDivisor)&&nDivisor>0;
+
+      lenDividend = hasProblem ? String(nDividend).length : 3;
+      lenDivisor  = hasProblem ? String(nDivisor ).length : 1;
+
+      cols        = lenDivisor + 1 + lenDividend;
+      bracketCol  = lenDivisor;
+      dividendStart = bracketCol + 1;
+
+      const stageCount = hasProblem && stageData.length ? stageData.length : lenDividend;
+
+      rowCount = 2 + stageCount*2;
+
+      hissan.style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
+      hissan.innerHTML='';
+      idsAll=[];
+
+      // 0行目：商
+      for(let c=0;c<cols;c++){
+        const cell=make('div','cell');
+        cell.id=`q-c${c}`;
+        if(c>=dividendStart) cell.classList.add('quot-cell');
+        hissan.appendChild(cell);
+        idsAll.push(cell.id);
+      }
+
+      // 1行目：割る数・かっこ・わられる数
+      for(let c=0;c<cols;c++){
+        const cell=make('div','cell');
+        if(c<lenDivisor){
+          cell.id=`divisor-c${c}`;
+          cell.classList.add('divisor-digit');
+        }else if(c===bracketCol){
+          cell.id=`br-mid-c${c}`;
+          cell.classList.add('bracket-mid');
+        }else{
+          cell.id=`d-c${c}`;
+          cell.classList.add('dividend-digit','dividend-top');
+        }
+        hissan.appendChild(cell);
+        idsAll.push(cell.id);
+      }
+
+      // 以降：各ステージの部分積行＋余り行
+      for(let s=0;s<stageCount;s++){
+        for(let c=0;c<cols;c++){
+          const cell=make('div','cell partial-cell');
+          cell.id=`p${s}-c${c}`;
+          hissan.appendChild(cell);
+          idsAll.push(cell.id);
+        }
+        for(let c=0;c<cols;c++){
+          const cell=make('div','cell rem-cell');
+          cell.id=`r${s}-c${c}`;
+          hissan.appendChild(cell);
+          idsAll.push(cell.id);
+        }
+      }
+
+      // 値の描画
+      if(hasProblem){
+        const dvStr = String(nDivisor);
+        for(let i=0;i<dvStr.length;i++){
+          const col = lenDivisor - dvStr.length + i;
+          setText(`divisor-c${col}`, dvStr[i]);
+        }
+        const ddStr = String(nDividend);
+        for(let i=0;i<ddStr.length;i++){
+          const col = dividendStart + i;
+          setText(`d-c${col}`, ddStr[i]);
+        }
+      }
+    }
+
+    // ========= レイアウト調整 & 手書き =========
+    function autoFitCell(){
+      const vw=Math.min(window.innerWidth||0,document.documentElement.clientWidth||0)||window.innerWidth;
+      const vh=Math.min(window.innerHeight||0,document.documentElement.clientHeight||0)||window.innerHeight;
+      const toolbarH=document.querySelector('.toolbar')?.getBoundingClientRect().height||0;
+
+      const availW=Math.max(240,vw-24);
+      const availH=Math.max(240,vh-toolbarH-24);
+
+      const cellW=Math.floor(availW/Math.max(3,cols||4));
+      const cellH=Math.floor(availH/Math.max(4,rowCount||6));
+      let cell=Math.min(96,cellW,cellH);
+      if(!cell||cell<32) cell=32;
+      document.documentElement.style.setProperty('--cell',cell+'px');
+    }
+
+    function resizeCanvas(){
+      canvas.width=hissan.offsetWidth;
+      canvas.height=hissan.offsetHeight;
+      ctx.strokeStyle='rgba(255,0,0,.7)';
+      ctx.lineWidth=3;
+      ctx.lineCap='round';
+      ctx.lineJoin='round';
+    }
+
+    function coords(e){
+      const r=canvas.getBoundingClientRect();
+      let x,y;
+      if(e.touches){
+        x=e.touches[0].clientX-r.left;
+        y=e.touches[0].clientY-r.top;
+      }else{
+        x=e.clientX-r.left;
+        y=e.clientY-r.top;
+      }
+      return [x,y];
+    }
+
+    function eMouse(e){
+      if(!isDrawingMode) return;
+      if(e.type==='mousedown'){
+        isDrawing=true;
+        const [x,y]=coords(e);
+        ctx.beginPath();
+        ctx.moveTo(x,y);
+      }else if(e.type==='mousemove'){
+        if(!isDrawing) return;
+        e.preventDefault();
+        const [x,y]=coords(e);
+        ctx.lineTo(x,y);
+        ctx.stroke();
+      }else{
+        if(!isDrawing) return;
+        ctx.closePath();
+        isDrawing=false;
+      }
+    }
+
+    function eTouch(e){
+      if(!isDrawingMode) return;
+      const t=e.type;
+      if(t==='touchstart'){
+        isDrawing=true;
+        const [x,y]=coords(e);
+        ctx.beginPath();
+        ctx.moveTo(x,y);
+      }else if(t==='touchmove'){
+        if(!isDrawing) return;
+        e.preventDefault();
+        const [x,y]=coords(e);
+        ctx.lineTo(x,y);
+        ctx.stroke();
+      }else{
+        if(!isDrawing) return;
+        ctx.closePath();
+        isDrawing=false;
+      }
+    }
+
+    // ========= ハイライト & Undo =========
+    function clearHighlights(){
+      hissan.querySelectorAll('.cell.calculating').forEach(e=>e.classList.remove('calculating'));
+    }
+
+    function highlightIds(ids){
+      clearHighlights();
+      ids.forEach(id=>{
+        const e=document.getElementById(id);
+        if(e) e.classList.add('calculating');
+      });
+    }
+
+    function pushSnapshot(){
+      const snap={
+        stepIndex,
+        texts:{},
+        hl:[],
+        stepBtn:el('#stepButton').textContent
+      };
+      idsAll.forEach(id=>snap.texts[id]=getText(id));
+      snap.hl=[...hissan.querySelectorAll('.cell.calculating')].map(e=>e.id).filter(Boolean);
+      history.push(JSON.stringify(snap));
+      el('#undoButton').disabled = history.length===0;
+    }
+
+    function undo(){
+      const raw=history.pop();
+      if(!raw) return;
+      const s=JSON.parse(raw);
+      stepIndex=s.stepIndex;
+      idsAll.forEach(id=>setText(id,s.texts[id]));
+      clearHighlights();
+      s.hl.forEach(id=>{
+        const e=document.getElementById(id);
+        if(e) e.classList.add('calculating');
+      });
+      el('#stepButton').textContent=s.stepBtn;
+      el('#undoButton').disabled = history.length===0;
+    }
+
+    // ========= ステップごとの処理 =========
+
+    function qColOfStage(st){
+      return dividendStart + st.endIndex;
+    }
+
+    // ① 割る数＋かたまり（current）のハイライト
+    function stepHlChunkDiv(stage){
+      const st = stageData[stage];
+      const ids=[];
+      // 割る数
+      for(let c=0;c<lenDivisor;c++) ids.push(`divisor-c${c}`);
+
+      if(stage===0){
+        // 最初のステージ：上のわられる数の桁
+        for(let k=st.highlightStart;k<=st.highlightEnd;k++){
+          const col = dividendStart + k;
+          ids.push(`d-c${col}`);
+        }
+      }else{
+        // 2ステージ目以降：前ステージの余り（赤の列）＋降ろした桁
+        const prev = stageData[stage-1];
+        if(prev.remStart!=null && prev.remEnd!=null){
+          for(let col=prev.remStart; col<=prev.remEnd; col++){
+            ids.push(`r${stage-1}-c${col}`);
+          }
+        }
+      }
+      highlightIds(ids);
+    }
+
+    // ② 商のマスを黄色
+    function stepHlQuot(stage){
+      const st=stageData[stage];
+      const col=qColOfStage(st);
+      highlightIds([`q-c${col}`]);
+    }
+
+    // ③ 商の数字を書く
+    function stepWriteQuot(stage){
+      const st=stageData[stage];
+      const col=qColOfStage(st);
+      setText(`q-c${col}`, st.qDigit);
+    }
+
+    // ④ 部分積を書く場所（下の行）を黄色にする
+    function stepHlPartialTarget(stage){
+      const st=stageData[stage];
+      const qCol=qColOfStage(st);
+      const s=String(st.partial);
+      const start=qCol-(s.length-1);
+      const ids=[];
+      for(let col=start; col<=qCol; col++){
+        ids.push(`p${stage}-c${col}`);
+      }
+      highlightIds(ids);
+    }
+
+// ⑤ 部分積を書く
+function stepWritePartial(stage){
+  const st  = stageData[stage];
+  const val = st.partial;          // 4×0 なら 0
+  const s   = String(val);        // "0"
+
+  const qCol = qColOfStage(st);
+  const start = qCol - (s.length - 1);
+
+  for (let j = 0; j < s.length; j++) {
+    const col = start + j;
+    setText(`p${stage}-c${col}`, s[j]);
+  }
+}
+
+
+    // ⑥ 引き算の対象と線をハイライト
+    function stepHlSubAndLine(stage){
+      const st=stageData[stage];
+      const ids=[];
+      const partStr=String(st.partial);
+      const qCol=qColOfStage(st);
+      const pStart=qCol-(partStr.length-1);
+
+      // current（引かれる数側）のハイライト
+      if(stage===0){
+        for(let k=st.highlightStart;k<=st.highlightEnd;k++){
+          const col=dividendStart+k;
+          ids.push(`d-c${col}`);
+        }
+      }else{
+        const prev = stageData[stage-1];
+        if(prev.remStart!=null && prev.remEnd!=null){
+          for(let col=prev.remStart; col<=prev.remEnd; col++){
+            ids.push(`r${stage-1}-c${col}`);
+          }
+        }
+      }
+
+      // 部分積（緑）のハイライト
+      for(let col=pStart; col<=qCol; col++){
+        ids.push(`p${stage}-c${col}`);
+      }
+
+      highlightIds(ids);
+
+      // その下の余り行に「上側の線」を付ける（永続）
+      for(let col=pStart; col<=qCol; col++){
+        const cell = document.getElementById(`r${stage}-c${col}`);
+        if(cell) cell.classList.add('sub-line');
+      }
+    }
+
+    // ⑦ 引き算して余りを書く（赤）
+    function stepWriteRemainder(stage){
+      const st=stageData[stage];
+      const qCol=qColOfStage(st);
+      const partStr=String(st.partial);
+      const pStart=qCol-(partStr.length-1);
+
+      // テキストだけクリア（線は残す）
+      for(let col=pStart; col<=qCol; col++){
+        const cell=document.getElementById(`r${stage}-c${col}`);
+        if(cell){
+          cell.textContent='';
+        }
+      }
+
+      const remStr=String(st.remainder);
+      const rStart=qCol-(remStr.length-1);
+      for(let j=0;j<remStr.length;j++){
+        const col=rStart+j;
+        setText(`r${stage}-c${col}`, remStr[j]);
+      }
+      st.remStart = rStart;
+      st.remEnd   = qCol;
+    }
+
+    // ⑧ 次のステージ用に「桁を降ろす」
+    function stepBringDown(nextStage){
+      const curStage = nextStage-1;
+      const prev = stageData[curStage];
+      if(prev.remEnd==null) return;
+
+      const stNext = stageData[nextStage];
+      const dividendStr = String(curDividend);
+      const digitIndex  = stNext.highlightStart;
+      if(digitIndex<0 || digitIndex>=dividendStr.length) return;
+      const newDigit = dividendStr[digitIndex];
+
+      const col = prev.remEnd + 1;
+      if(col >= cols) return;
+
+      clearHighlights();
+      setText(`r${curStage}-c${col}`, newDigit);
+
+      prev.remEnd = col;
+    }
+
+    // ========= stepList の構築 =========
+    function buildSteps(){
+      stepList=[];
+      if(!stageData.length) return;
+
+      const lastStage = stageData.length-1;
+
+      for(let s=0; s<stageData.length; s++){
+        stepList.push({kind:'hlChunkDiv', stage:s});
+        stepList.push({kind:'hlQuot',     stage:s});
+        stepList.push({kind:'writeQuot',  stage:s});
+        stepList.push({kind:'hlPartial',  stage:s});
+        stepList.push({kind:'writePartial',stage:s});
+        stepList.push({kind:'hlSubLine',  stage:s});
+        stepList.push({kind:'writeRem',   stage:s});
+
+        if(s < lastStage){
+          stepList.push({kind:'bringDown', stage:s+1});
+        }
+      }
+      stepList.push({kind:'done'});
+    }
+
+    function applyStep(s){
+      if(!s) return;
+      switch(s.kind){
+        case 'hlChunkDiv': stepHlChunkDiv(s.stage); break;
+        case 'hlQuot':     stepHlQuot(s.stage);     break;
+        case 'writeQuot':  stepWriteQuot(s.stage);  break;
+        case 'hlPartial':  stepHlPartialTarget(s.stage); break;
+        case 'writePartial': stepWritePartial(s.stage);  break;
+        case 'hlSubLine':  stepHlSubAndLine(s.stage);    break;
+        case 'writeRem':   stepWriteRemainder(s.stage);  break;
+        case 'bringDown':  stepBringDown(s.stage);       break;
+        case 'done':
+          clearHighlights();
+          el('#stepButton').textContent='リセット';
+          break;
+      }
+    }
+
+    // ========= 全体リセット & 1ステップ進める =========
+    function resetAll(){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      isDrawingMode=false;
+      el('#drawButton').classList.remove('active');
+      canvas.style.pointerEvents='none';
+
+      if(Number.isInteger(curDividend)&&Number.isInteger(curDivisor)&&curDivisor>0){
+        computeStageData(curDividend,curDivisor);
+        buildBoard(curDividend,curDivisor);
+        buildSteps();
+      }else{
+        stageData=[];
+        buildBoard(null,null);
+        stepList=[];
+      }
+
+      autoFitCell();
+      resizeCanvas();
+
+      stepIndex=-1;
+      history.length=0;
+      clearHighlights();
+      el('#stepButton').textContent='▶️ つぎへ';
+      el('#undoButton').disabled=true;
+    }
+
+    function doStep(){
+      if(!Number.isInteger(curDividend)||!Number.isInteger(curDivisor)||curDivisor<=0){
+        openKeypad();
+        return;
+      }
+      if(!stepList.length){
+        computeStageData(curDividend,curDivisor);
+        buildBoard(curDividend,curDivisor);
+        buildSteps();
+        autoFitCell();
+        resizeCanvas();
+      }
+
+      if(stepIndex>=stepList.length-1){
+        resetAll();
+        return;
+      }
+
+      if(stepIndex===-1){
+        stepIndex=0;
+        applyStep(stepList[0]);
+        return;
+      }
+
+      pushSnapshot();
+      stepIndex++;
+      applyStep(stepList[stepIndex]);
+    }
+
+    // ========= キーパッド =========
+    let kpValue='';
+
+    function openKeypad(){
+      kpValue = (Number.isInteger(curDividend)&&Number.isInteger(curDivisor))
+        ? `${curDividend}÷${curDivisor}`
+        : '';
+      el('#kp-title').textContent='問題を入力（例：586÷4）';
+      el('#kp-display').textContent=kpValue;
+      el('#keypad').classList.add('show');
+    }
+    function closeKeypad(){
+      el('#keypad').classList.remove('show');
+    }
+
+    function parseExpr(expr){
+      const s=String(expr||'').replace(/\s+/g,'');
+      if(!s) return null;
+      const m=s.match(/[÷/]/);
+      if(!m) return null;
+      const a=s.slice(0,m.index);
+      const b=s.slice(m.index+m[0].length);
+      if(!a||!b) return null;
+      const ai=parseInt(a,10);
+      const bi=parseInt(b,10);
+      if(!Number.isFinite(ai)||!Number.isFinite(bi)) return null;
+      return [ai,bi];
+    }
+
+    function shakeDisplay(){
+      const d=el('#kp-display');
+      d.style.transform='translateX(0)';
+      d.animate(
+        [
+          {transform:'translateX(0)'},
+          {transform:'translateX(-8px)'},
+          {transform:'translateX(8px)'},
+          {transform:'translateX(0)'}
+        ],
+        {duration:180}
+      );
+    }
+
+    // ========= イベント登録 =========
+    window.addEventListener('load',()=>{
+      buildBoard(curDividend,curDivisor);
+      autoFitCell();
+      resizeCanvas();
+    });
+    window.addEventListener('resize',()=>{
+      autoFitCell();
+      resizeCanvas();
+    });
+    window.addEventListener('orientationchange',()=>{
+      setTimeout(()=>{ autoFitCell(); resizeCanvas(); },200);
+    });
+
+    el('#drawButton').addEventListener('click',()=>{
+      isDrawingMode=!isDrawingMode;
+      el('#drawButton').classList.toggle('active',isDrawingMode);
+      canvas.style.pointerEvents = isDrawingMode? 'auto':'none';
+    });
+    el('#clearButton').addEventListener('click',()=>{
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+    });
+
+    ['mousedown','mousemove','mouseup','mouseout'].forEach(ev=>{
+      canvas.addEventListener(ev,eMouse,{passive:false});
+    });
+    ['touchstart','touchmove','touchend','touchcancel'].forEach(ev=>{
+      canvas.addEventListener(ev,eTouch,{passive:false});
+    });
+
+    el('#stepButton').addEventListener('click',doStep);
+    el('#undoButton').addEventListener('click',undo);
+    el('#resetButton').addEventListener('click',resetAll);
+
+    // 盤面タップでキーパッド表示
+    document.addEventListener('click',e=>{
+      if(isDrawingMode) return;
+      if(e.target.closest('.toolbar') || e.target.closest('#keypad')) return;
+      if(e.target.closest('#calculator-wrapper')) openKeypad();
+    });
+
+    el('#keypad').addEventListener('click',e=>{
+      const b=e.target.closest('.kp-btn');
+      if(!b) return;
+      const t=b.textContent.trim();
+
+      if(t==='計算'){
+        const normalized = kpValue.replace(/\uFE0F/g,'').replace(/[÷/]/,'÷');
+        const parsed = parseExpr(normalized);
+        if(!parsed){ shakeDisplay(); return; }
+        const [a,bDiv] = parsed;
+        if(bDiv===0){ shakeDisplay(); return; }
+        if(a<1 || a>9999 || bDiv<1 || bDiv>99){ shakeDisplay(); return; }
+
+        curDividend = a;
+        curDivisor  = bDiv;
+        resetAll();
+        closeKeypad();
+        return;
+      }
+
+      if(t==='キャンセル'){
+        closeKeypad();
+        return;
+      }
+
+      if(t==='C'){
+        kpValue='';
+        el('#kp-display').textContent='';
+        return;
+      }
+
+      if(t==='⌫'){
+        kpValue = backspaceOne(kpValue);
+        el('#kp-display').textContent = kpValue;
+        return;
+      }
+
+      if(/[÷/]/.test(t)){
+        if(!kpValue || /[÷/]/.test(kpValue)) return;
+        kpValue += '÷';
+        el('#kp-display').textContent = kpValue;
+        return;
+      }
+
+      if(/^[0-9]$/.test(t)){
+        const m = kpValue.match(/[÷/]/);
+        if(!m){
+          const leftLen = (kpValue.match(/\d/g)||[]).length;
+          if(leftLen>=4) return;  // わられる数は4桁まで
+          kpValue += t;
+        }else{
+          const idx   = m.index + m[0].length;
+          const right = kpValue.slice(idx);
+          const rightLen=(right.match(/\d/g)||[]).length;
+          if(rightLen>=2) return; // わる数は2桁まで
+          kpValue += t;
+        }
+        el('#kp-display').textContent = kpValue;
+        return;
+      }
+    });
+
+    el('#kp-cancel').addEventListener('click',()=>{ closeKeypad(); });
+  </script>
+</body>
+</html>
